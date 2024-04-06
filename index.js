@@ -16,7 +16,12 @@ client.on('message', (channel, tags, message, self) => {
 	if(self) return;
 
 	if(message.toLowerCase() === '!hello') {
-		// "@alca, heya!"
 		client.say(channel, `@${tags.username}, heya!`);
 	}
+});
+
+// Listen for the 'raided' event
+client.on('raided', (channel, username, viewers) => {
+    // Send the /shoutout command for the user who raided
+    client.say(channel, `/shoutout ${username}`);
 });
