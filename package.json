@@ -1,0 +1,23 @@
+{
+  "name": "hivehelper",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js",
+    "start:dev": "dotenvx run --env-file=.env.local -- node index.js"
+  },
+  "engines": {
+    "node": ">=v18.x"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.42.0",
+    "tmi.js": "^1.8.5"
+  },
+  "devDependencies": {
+    "@dotenvx/dotenvx": "^0.29.2"
+  }
+}

@@ -1,36 +1,24 @@
 const tmi = require('tmi.js');
-const { createClient } = require('redis');
+const { createClient: createSupabaseClient } = require('@supabase/supabase-js');
 
-// Create a Redis client
-const redisClient = createClient();
+// Create a single supabase client for interacting with your database
+const supabase = createSupabaseClient(process.env.SUPERBASE_URL, process.env.SUPABASE_KEY);
 
-redisClient.on('error', (err) => console.log('Redis Client Error', err));
-redisClient.connect();
+async function fetchStreamers() {
+  const { data, error } = await supabase
+    .from('streamers')
+    .select('username') // Select all fields
+    .eq('active', true); // Filter where active is true
 
-const client = new tmi.Client({
-	options: { debug: true },
-	identity: {
-		username: 'my_bot_name',
-		password: 'oauth:my_bot_token'
-	},
-	channels: [] // Start with an empty array; we'll add channels dynamically
-});
+  if (error) {
+    console.error('Error fetching data:', error.message);
+    return;
+  }
 
-client.connect().catch(console.error);
+  return data;
+}
 
-client.on('message', (channel, tags, message, self) => {
-	if(self) return;
-
-	if(message.toLowerCase() === '!hello') {
-		client.say(channel, `@${tags.username}, heya!`);
-	}
-});
-
-client.on('raided', (channel, username, viewers) => {
-    client.say(channel, `/shoutout ${username}`);
-});
-
-async function addChannel(channelName, retryCount = 3, delay = 1000, backoffFactor = 2) {
+async function addChannel(client, channelName, retryCount = 3, delay = 1000, backoffFactor = 2) {
   try {
     await client.join(channelName);
     console.log(`Successfully joined ${channelName}`);
@@ -38,8 +26,8 @@ async function addChannel(channelName, retryCount = 3, delay = 1000, backoffFact
     console.log(`Error attempting to join ${channelName}: ${err}`);
     if (retryCount > 0 && err === 'ERR_TOO_MANY_CHANNELS') {
       console.log(`Rate limit exceeded. Retrying in ${delay} milliseconds...`);
-      setTimeout(() => {
-        addChannel(channelName, retryCount - 1, delay * backoffFactor, backoffFactor);
+      setTimeout(async () => {
+        await addChannel(client, channelName, retryCount - 1, delay * backoffFactor, backoffFactor);
       }, delay);
     } else {
       console.error(`Error joining ${channelName}: ${err}`);
@@ -47,18 +35,48 @@ async function addChannel(channelName, retryCount = 3, delay = 1000, backoffFact
   }
 }
 
-async function checkRedisForNewChannels() {
-    try {
-        const channels = await redisClient.lRange('twitch_to_join', 0, -1);
-        channels.forEach(channelName => {
-            addChannel(channelName);
-            // Optionally, remove the channel from the list after attempting to join
-            // await redisClient.lRem('twitch_to_join', 0, channelName);
-        });
-    } catch (err) {
-        console.error('Failed to retrieve channels from Redis:', err);
-    }
-}
 
-// Poll Redis every 30 seconds for new channels
-setInterval(checkRedisForNewChannels, 30000);
+(async () => {
+  // Fetch initial list of active streamers from the database
+  const streamers = await fetchStreamers();
+  // Extract channel names from the streamers' data
+  const channelsToJoin = streamers.map(obj => obj.username);
+
+  // Initialize TMI client
+  const client = new tmi.Client({
+    options: { debug: true },
+    identity: {
+      username: process.env.TWITCH_USERNAME,
+      password: `oauth:${process.env.TWITCH_TOKEN}`
+    },
+    channels: channelsToJoin
+  });
+
+  // Connect TMI client to Twitch
+  client.connect().catch(console.error);
+
+  // Listen for messages in channels
+  client.on('message', (channel, tags, message, self) => {
+    if (self) return;
+
+    if (message.toLowerCase() === '!hello') {
+      client.say(channel, `@${tags.username}, heya!`);
+    }
+  });
+
+  // Listen for raids and issue shoutouts
+  client.on('raided', (channel, username, viewers) => {
+    client.say(channel, `/shoutout ${username}`);
+  });
+
+
+  // Subscribe to changes in the streamers table in the database
+  supabase
+    .channel('streamers')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'streamers' }, payload => {
+      // When a new streamer is inserted, join their channel
+      addChannel(client, payload.new.username);
+    })
+    .subscribe()
+
+})();

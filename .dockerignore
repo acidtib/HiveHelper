@@ -1,0 +1,9 @@
+# Ignore git directory.
+/.git/
+
+# Ignore all environment files.
+/.env*
+!/.env.example
+
+# Ignore assets.
+/node_modules/
